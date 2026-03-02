@@ -131,6 +131,32 @@ async function sendDiscordAlert({ ip, userAgent = 'unknown', timestamp, filename
     }
 }
 
+// download notification helper (non-blocking)
+function sendDiscordDownloadNotification({ filename, userInfo = 'Public Access', ip = 'unknown', userAgent = 'unknown', timestamp }) {
+    if (!DISCORD_WEBHOOK_URL) return;
+    const color = 0x00AA00; // green
+    const embed = {
+        title: 'File Downloaded',
+        color,
+        fields: [
+            { name: 'Filename', value: filename || 'unknown', inline: false },
+            { name: 'User', value: userInfo, inline: true },
+            { name: 'IP', value: ip, inline: true },
+            { name: 'Browser', value: userAgent, inline: false },
+            { name: 'Time', value: timestamp || new Date().toISOString(), inline: false }
+        ]
+    };
+
+    // fire-and-forget; catch errors so it never crashes the server
+    (async () => {
+        try {
+            await axios.post(DISCORD_WEBHOOK_URL, { embeds: [embed] });
+        } catch (err) {
+            console.error('discord download notify failed', err && err.message);
+        }
+    })();
+}
+
 // multer setup
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, UPLOAD_DIR),
@@ -184,7 +210,22 @@ app.get('/download/:id', (req, res) => {
         return res.status(403).send('locked');
     }
     const fullPath = path.join(UPLOAD_DIR, file.filename);
-    res.download(fullPath, file.originalName);
+    res.download(fullPath, file.originalName, (err) => {
+        if (err) {
+            console.error('download error', err && err.message);
+            return;
+        }
+        // on successful serve, notify Discord (non-blocking)
+        const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip;
+        const userAgent = req.headers['user-agent'] || 'unknown';
+        sendDiscordDownloadNotification({
+            filename: file.originalName,
+            userInfo: 'Public Access',
+            ip,
+            userAgent,
+            timestamp: new Date().toISOString()
+        });
+    });
 });
 
 // admin API to list files
@@ -294,7 +335,22 @@ app.post('/download/:id', async (req, res) => {
     // success, reset attempts
     attemptMap.delete(makeKey(ip, fileId));
     const fullPath = path.join(UPLOAD_DIR, file.filename);
-    res.download(fullPath, file.originalName);
+    res.download(fullPath, file.originalName, (err) => {
+        if (err) {
+            console.error('download error', err && err.message);
+            return;
+        }
+        // notify Discord about successful authenticated download
+        const ipAddr = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip;
+        const userAgent = req.headers['user-agent'] || 'unknown';
+        sendDiscordDownloadNotification({
+            filename: file.originalName,
+            userInfo: nickname || file.nickname || 'unknown',
+            ip: ipAddr,
+            userAgent,
+            timestamp: new Date().toISOString()
+        });
+    });
 });
 
 // generic error handler
