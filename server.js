@@ -23,13 +23,13 @@ app.get('/admin', (req, res) => {
 });
 
 // make sure data directories exist
-const DATA_DIR = path.join(__dirname, 'data');
-const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
+const DATA_DIR = '/app/data';
+const UPLOAD_DIR = '/app/data/uploads';
 if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR);
+    fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 if (!fs.existsSync(UPLOAD_DIR)) {
-    fs.mkdirSync(UPLOAD_DIR);
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
 // sqlite setup

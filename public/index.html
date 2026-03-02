@@ -1,130 +1,178 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Files</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-gray-900 text-gray-100">
-  <div class="container mx-auto p-4">
-    <h1 class="text-3xl font-bold mb-6">Available Files</h1>
-    <div id="grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4"></div>
-  </div>
-
-  <!-- modal -->
-  <div id="modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
-    <div class="bg-gray-800 p-6 rounded shadow-lg w-full max-w-md">
-      <h2 class="text-xl mb-4">Enter credentials</h2>
-      <input type="text" id="modal-nickname" placeholder="Nickname" class="w-full mb-2 p-2 bg-gray-700 rounded" />
-      <input type="password" id="modal-password" placeholder="Password" class="w-full mb-4 p-2 bg-gray-700 rounded" />
-      <div class="flex justify-end">
-        <button id="modal-cancel" class="px-4 py-2 mr-2 bg-gray-600 rounded">Cancel</button>
-        <button id="modal-submit" class="px-4 py-2 bg-blue-500 rounded">Download</button>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    let files = [];
-    let currentLockId = null;
-
-    async function loadFiles() {
-      const res = await fetch('/api/files');
-      files = await res.json();
-      renderGrid();
-    }
-
-    function renderGrid() {
-      const grid = document.getElementById('grid');
-      grid.innerHTML = '';
-      files.forEach(f => {
-        const card = document.createElement('div');
-        card.className = 'bg-gray-800 p-4 rounded shadow flex flex-col';
-        card.innerHTML = `
-          <div class="flex justify-between items-center mb-2">
-            <span class="font-semibold">${f.originalName}</span>
-            ${f.isLocked ? '<span>🔒</span>' : ''}
-          </div>
-          <div class="text-sm mb-4">by ${f.nickname}</div>
-          <div class="text-xs mb-4">${new Date(f.uploadDate).toLocaleString()}</div>
-          <button data-id="${f.id}" class="download-btn mt-auto px-3 py-1 bg-blue-600 rounded">Download</button>
-        `;
-        grid.appendChild(card);
-      });
-      document.querySelectorAll('.download-btn').forEach(btn => {
-        const id = btn.dataset.id;
-        btnMap[id] = btn;
-        btn.onclick = onDownloadClick;
-      });
-    }
-
-    function showModal(id) {
-      currentLockId = id;
-      document.getElementById('modal').classList.remove('hidden');
-    }
-    function hideModal() {
-      document.getElementById('modal').classList.add('hidden');
-    }
-
-    document.getElementById('modal-cancel').onclick = hideModal;
-    document.getElementById('modal-submit').onclick = async () => {
-      const nickname = document.getElementById('modal-nickname').value;
-      const password = document.getElementById('modal-password').value;
-      const res = await fetch(`/download/${currentLockId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nickname, password })
-      });
-      if (res.status === 429) {
-        hideModal();
-        startBanTimer(btnMap[currentLockId]);
-        return;
-      }
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = '';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        hideModal();
-      } else {
-        alert('failed');
-      }
-    };
-
-    const btnMap = {};
-    function onDownloadClick(e) {
-      const id = e.target.dataset.id;
-      const file = files.find(x => x.id === id);
-      if (file.isLocked) {
-        showModal(id);
-      } else {
-        window.location = `/download/${id}`;
-      }
-    }
-
-    function startBanTimer(button) {
-      let remaining = 10 * 60; // seconds
-      button.disabled = true;
-      const origText = button.textContent;
-      const interval = setInterval(() => {
-        const min = String(Math.floor(remaining / 60)).padStart(2,'0');
-        const sec = String(remaining % 60).padStart(2,'0');
-        button.textContent = `Blocked for ${min}:${sec}`;
-        remaining -= 1;
-        if (remaining < 0) {
-          clearInterval(interval);
-          button.disabled = false;
-          button.textContent = origText;
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>CDN | Drilex</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg: #0a000e;
+            --accent: #892eff;
+            --text: #ffffff;
+            --text-muted: #b8b0c8;
+            --glass: rgba(255, 255, 255, 0.03);
         }
-      }, 1000);
-    }
 
-    window.addEventListener('load', loadFiles);
-  </script>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html, body {
+            height: 100%;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .bg-glow {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at 50% 50%, rgba(137, 46, 255, 0.08) 0%, transparent 50%);
+            z-index: -1;
+        }
+
+        .container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 24px;
+        }
+
+        .hero-card {
+            background: var(--glass);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 24px;
+            padding: 60px 40px;
+            max-width: 600px;
+            width: 100%;
+        }
+
+        .title {
+            font-size: clamp(2.5rem, 8vw, 4rem);
+            font-weight: 800;
+            margin-bottom: 16px;
+            letter-spacing: -2px;
+            background: linear-gradient(to bottom, #ffffff, #b8b0c8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            line-height: 1.6;
+            margin-bottom: 32px;
+            max-width: 450px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(137, 46, 255, 0.1);
+            border: 1px solid rgba(137, 46, 255, 0.2);
+            padding: 6px 16px;
+            border-radius: 100px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 24px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--accent);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--accent);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+
+        footer {
+            padding: 40px 24px;
+            text-align: center;
+        }
+
+        .footer-links {
+            margin-bottom: 16px;
+            display: flex;
+            justify-content: center;
+            gap: 32px;
+        }
+
+        .footer-links a {
+            color: var(--text);
+            font-size: 24px;
+            transition: all 0.3s ease;
+            opacity: 0.6;
+        }
+
+        .footer-links a:hover {
+            color: var(--accent);
+            opacity: 1;
+            transform: translateY(-3px);
+        }
+
+        .footer-copyright {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-glow"></div>
+    
+    <div class="container">
+        <div class="hero-card">
+            <div class="status-badge">
+                <div class="status-dot"></div>
+                SERVER RUNNING
+            </div>
+            <h1 class="title">DRILEX SHARE</h1>
+            <p class="subtitle">
+                Advanced Cloud Delivery Network. <br>
+                Fast & Secure File Sharing <br>
+                
+            </p>
+        </div>
+    </div>
+
+    <footer>
+        <div class="footer-links">
+            <a href="https://drilex.cz/" target="_blank" rel="noopener" title="Main Website">
+                <i class="fas fa-globe"></i>
+            </a>
+            <a href="https://drilex.cz/discord/" target="_blank" rel="noopener" title="Discord">
+                <i class="fab fa-discord"></i>
+            </a>
+            <a href="https://github.com/Drilexik" target="_blank" rel="noopener" title="GitHub">
+                <i class="fab fa-github"></i>
+            </a>
+        </div>
+        <div class="footer-copyright">© 2026 DRILEX DEVELOPMENT</div>
+    </footer>
 </body>
 </html>
