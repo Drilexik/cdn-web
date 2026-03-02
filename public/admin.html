@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-gray-100">
+  <!-- login overlay -->
+  <div id="login-overlay" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center">
+    <div class="bg-gray-800 p-6 rounded shadow-lg">
+      <h2 class="text-2xl mb-4">Admin Login</h2>
+      <input id="login-password" type="password" placeholder="Password" class="w-full mb-4 p-2 bg-gray-700 rounded" />
+      <button id="login-btn" class="px-4 py-2 bg-blue-600 rounded">Login</button>
+    </div>
+  </div>
+
+  <div class="container mx-auto p-4" id="dashboard" style="display:none;">
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-3xl font-bold">Admin Dashboard</h1>
+      <button id="logout-btn" class="px-3 py-1 bg-red-600 rounded">Logout</button>
+    </div>
+
+    <!-- upload section -->
+    <div class="bg-gray-800 p-4 rounded mb-6">
+      <h2 class="text-xl mb-4">Upload New File</h2>
+      <form id="upload-form" class="space-y-4">
+        <input type="file" id="file-input" class="w-full bg-gray-700 rounded p-2" />
+        <input type="text" id="upload-nickname" placeholder="Nickname" class="w-full bg-gray-700 rounded p-2" />
+        <input type="password" id="upload-password" placeholder="Password (optional)" class="w-full bg-gray-700 rounded p-2" />
+        <button type="submit" class="px-4 py-2 bg-green-600 rounded">Upload</button>
+      </form>
+    </div>
+
+    <!-- management table -->
+    <div>
+      <h2 class="text-xl mb-4">Files</h2>
+      <table class="min-w-full bg-gray-800 rounded">
+        <thead>
+          <tr>
+            <th class="px-4 py-2">Original</th>
+            <th class="px-4 py-2">Nickname</th>
+            <th class="px-4 py-2">Locked</th>
+            <th class="px-4 py-2">Date</th>
+            <th class="px-4 py-2">Action</th>
+          </tr>
+        </thead>
+        <tbody id="files-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const overlay = document.getElementById('login-overlay');
+    const dashboard = document.getElementById('dashboard');
+    const loginBtn = document.getElementById('login-btn');
+    const loginPass = document.getElementById('login-password');
+
+    function showDashboard() {
+      overlay.style.display = 'none';
+      dashboard.style.display = 'block';
+      loadFiles();
+    }
+
+    loginBtn.onclick = () => {
+      const pw = loginPass.value;
+      if (pw) {
+        localStorage.setItem('adminPassword', pw);
+        showDashboard();
+      }
+    };
+
+    if (localStorage.getItem('adminPassword')) {
+      showDashboard();
+    }
+
+    document.getElementById('logout-btn').onclick = () => {
+      localStorage.removeItem('adminPassword');
+      dashboard.style.display = 'none';
+      overlay.style.display = 'flex';
+    };
+
+    document.getElementById('upload-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const fileInput = document.getElementById('file-input');
+      if (!fileInput.files.length) return;
+      const form = new FormData();
+      form.append('file', fileInput.files[0]);
+      form.append('nickname', document.getElementById('upload-nickname').value);
+      form.append('password', document.getElementById('upload-password').value);
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: form,
+        headers: { 'x-admin-password': localStorage.getItem('adminPassword') }
+      });
+      if (res.ok) {
+        fileInput.value = '';
+        document.getElementById('upload-nickname').value = '';
+        document.getElementById('upload-password').value = '';
+        loadFiles();
+      } else {
+        alert('upload failed');
+      }
+    };
+
+    async function loadFiles() {
+      const res = await fetch('/api/files');
+      const data = await res.json();
+      const body = document.getElementById('files-body');
+      body.innerHTML = '';
+      data.forEach(f => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="border px-4 py-2">${f.originalName}</td>
+          <td class="border px-4 py-2">${f.nickname}</td>
+          <td class="border px-4 py-2">${f.isLocked ? 'Yes' : 'No'}</td>
+          <td class="border px-4 py-2">${new Date(f.uploadDate).toLocaleString()}</td>
+          <td class="border px-4 py-2"><button data-id="${f.id}" class="delete-btn px-2 py-1 bg-red-600 rounded">Delete</button></td>
+        `;
+        body.appendChild(tr);
+      });
+      document.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.onclick = onDelete;
+      });
+    }
+
+    async function onDelete(e) {
+      const id = e.target.dataset.id;
+      const res = await fetch(`/api/files/${id}`, {
+        method: 'DELETE',
+        headers: { 'x-admin-password': localStorage.getItem('adminPassword') }
+      });
+      if (res.ok) loadFiles();
+      else alert('delete failed');
+    }
+  </script>
+</body>
+</html>

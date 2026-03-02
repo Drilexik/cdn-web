@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Files</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-gray-100">
+  <div class="container mx-auto p-4">
+    <h1 class="text-3xl font-bold mb-6">Available Files</h1>
+    <div id="grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4"></div>
+  </div>
+
+  <!-- modal -->
+  <div id="modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden">
+    <div class="bg-gray-800 p-6 rounded shadow-lg w-full max-w-md">
+      <h2 class="text-xl mb-4">Enter credentials</h2>
+      <input type="text" id="modal-nickname" placeholder="Nickname" class="w-full mb-2 p-2 bg-gray-700 rounded" />
+      <input type="password" id="modal-password" placeholder="Password" class="w-full mb-4 p-2 bg-gray-700 rounded" />
+      <div class="flex justify-end">
+        <button id="modal-cancel" class="px-4 py-2 mr-2 bg-gray-600 rounded">Cancel</button>
+        <button id="modal-submit" class="px-4 py-2 bg-blue-500 rounded">Download</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let files = [];
+    let currentLockId = null;
+
+    async function loadFiles() {
+      const res = await fetch('/api/files');
+      files = await res.json();
+      renderGrid();
+    }
+
+    function renderGrid() {
+      const grid = document.getElementById('grid');
+      grid.innerHTML = '';
+      files.forEach(f => {
+        const card = document.createElement('div');
+        card.className = 'bg-gray-800 p-4 rounded shadow flex flex-col';
+        card.innerHTML = `
+          <div class="flex justify-between items-center mb-2">
+            <span class="font-semibold">${f.originalName}</span>
+            ${f.isLocked ? '<span>🔒</span>' : ''}
+          </div>
+          <div class="text-sm mb-4">by ${f.nickname}</div>
+          <div class="text-xs mb-4">${new Date(f.uploadDate).toLocaleString()}</div>
+          <button data-id="${f.id}" class="download-btn mt-auto px-3 py-1 bg-blue-600 rounded">Download</button>
+        `;
+        grid.appendChild(card);
+      });
+      document.querySelectorAll('.download-btn').forEach(btn => {
+        const id = btn.dataset.id;
+        btnMap[id] = btn;
+        btn.onclick = onDownloadClick;
+      });
+    }
+
+    function showModal(id) {
+      currentLockId = id;
+      document.getElementById('modal').classList.remove('hidden');
+    }
+    function hideModal() {
+      document.getElementById('modal').classList.add('hidden');
+    }
+
+    document.getElementById('modal-cancel').onclick = hideModal;
+    document.getElementById('modal-submit').onclick = async () => {
+      const nickname = document.getElementById('modal-nickname').value;
+      const password = document.getElementById('modal-password').value;
+      const res = await fetch(`/download/${currentLockId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nickname, password })
+      });
+      if (res.status === 429) {
+        hideModal();
+        startBanTimer(btnMap[currentLockId]);
+        return;
+      }
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = '';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        hideModal();
+      } else {
+        alert('failed');
+      }
+    };
+
+    const btnMap = {};
+    function onDownloadClick(e) {
+      const id = e.target.dataset.id;
+      const file = files.find(x => x.id === id);
+      if (file.isLocked) {
+        showModal(id);
+      } else {
+        window.location = `/download/${id}`;
+      }
+    }
+
+    function startBanTimer(button) {
+      let remaining = 10 * 60; // seconds
+      button.disabled = true;
+      const origText = button.textContent;
+      const interval = setInterval(() => {
+        const min = String(Math.floor(remaining / 60)).padStart(2,'0');
+        const sec = String(remaining % 60).padStart(2,'0');
+        button.textContent = `Blocked for ${min}:${sec}`;
+        remaining -= 1;
+        if (remaining < 0) {
+          clearInterval(interval);
+          button.disabled = false;
+          button.textContent = origText;
+        }
+      }, 1000);
+    }
+
+    window.addEventListener('load', loadFiles);
+  </script>
+</body>
+</html>
