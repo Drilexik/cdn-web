@@ -9,31 +9,64 @@ const { v4: uuidv4 } = require('uuid');
 const Database = require('better-sqlite3');
 const axios = require('axios');
 
+// --- DIAGNOSTIKA CHYB (DŮLEŽITÉ PRO DOCKER) ---
+process.on('uncaughtException', (err) => {
+    console.error('❌ KRITICKÁ CHYBA PŘI STARTU:', err.message);
+    console.error(err.stack);
+});
+
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 
 const app = express();
 app.set('trust proxy', true);
 app.use(express.json());
-app.use(express.static('public')); // serve visitor and admin pages
+
+// Kontrola existence složky public, aby server nespadl
+const PUBLIC_DIR = path.join(__dirname, 'public');
+if (!fs.existsSync(PUBLIC_DIR)) {
+    console.warn('⚠️ VAROVÁNÍ: Složka "public" neexistuje! Vytvářím ji...');
+    fs.mkdirSync(PUBLIC_DIR, { recursive: true });
+}
+app.use(express.static('public'));
 
 // explicit admin page route
 app.get('/admin', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+    const adminPath = path.join(PUBLIC_DIR, 'admin.html');
+    if (fs.existsSync(adminPath)) {
+        res.sendFile(adminPath);
+    } else {
+        res.status(404).send('Administrace (admin.html) nebyla nalezena ve složce public.');
+    }
 });
 
 // make sure data directories exist
 const DATA_DIR = '/app/data';
 const UPLOAD_DIR = '/app/data/uploads';
-if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-if (!fs.existsSync(UPLOAD_DIR)) {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+try {
+    if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+        console.log('✅ Složka /app/data vytvořena.');
+    }
+    if (!fs.existsSync(UPLOAD_DIR)) {
+        fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+        console.log('✅ Složka /app/data/uploads vytvořena.');
+    }
+} catch (err) {
+    console.error('❌ CHYBA PRÁV: Nemohu vytvořit složky pro data!', err.message);
 }
 
 // sqlite setup
-const db = new Database(path.join(DATA_DIR, 'files.db'));
+let db;
+try {
+    db = new Database(path.join(DATA_DIR, 'files.db'), { verbose: console.log });
+    console.log('✅ SQLite databáze připravena.');
+} catch (err) {
+    console.error('❌ SQLITE ERROR:', err.message);
+    process.exit(1); // Pokud nejede DB, nemá cenu pokračovat
+}
+
 db.prepare(`
     CREATE TABLE IF NOT EXISTS file_meta (
         id TEXT PRIMARY KEY,
@@ -79,7 +112,7 @@ function recordFailure(ip, fileId) {
     entry.attempts += 1;
     let justBanned = false;
     if (entry.attempts >= 3) {
-        entry.bannedUntil = now + 10 * 60 * 1000; // 10 minutes
+        entry.bannedUntil = now + 10 * 60 * 1000; 
         justBanned = true;
     }
     attemptMap.set(key, entry);
@@ -102,11 +135,8 @@ function isBanned(ip, fileId) {
 // discord alert helper
 async function sendDiscordAlert({ ip, userAgent = 'unknown', timestamp, filename = 'unknown', providedNickname = '', status }) {
     if (!DISCORD_WEBHOOK_URL) return;
-
     let color = 0xFFA500; 
-    if (status.toLowerCase().includes('ban')) {
-        color = 0xFF0000; 
-    }
+    if (status.toLowerCase().includes('ban')) color = 0xFF0000;
 
     const embed = {
         title: 'CDN Alert',
@@ -124,7 +154,7 @@ async function sendDiscordAlert({ ip, userAgent = 'unknown', timestamp, filename
     try {
         await axios.post(DISCORD_WEBHOOK_URL, { embeds: [embed] });
     } catch (err) {
-        console.error('failed to send discord alert', err.message);
+        console.error('discord alert failed', err.message);
     }
 }
 
@@ -148,7 +178,7 @@ function sendDiscordDownloadNotification({ filename, userInfo = 'Public Access',
         try {
             await axios.post(DISCORD_WEBHOOK_URL, { embeds: [embed] });
         } catch (err) {
-            console.error('discord download notify failed', err && err.message);
+            console.error('discord notify failed', err.message);
         }
     })();
 }
@@ -166,9 +196,7 @@ const upload = multer({ storage });
 
 // admin upload route
 app.post('/api/upload', adminOnly, upload.single('file'), async (req, res) => {
-    if (!req.file) {
-        return res.status(400).json({ error: 'no file' });
-    }
+    if (!req.file) return res.status(400).json({ error: 'no file' });
 
     const nickname = req.body.nickname || 'anonymous';
     const password = req.body.password;
@@ -201,15 +229,11 @@ app.post('/api/upload', adminOnly, upload.single('file'), async (req, res) => {
 app.get('/download/:id', (req, res) => {
     const file = getFileById.get(req.params.id);
     if (!file) return res.status(404).send('not found');
-    if (file.isLocked) {
-        return res.status(403).send('locked');
-    }
+    if (file.isLocked) return res.status(403).send('locked');
+    
     const fullPath = path.join(UPLOAD_DIR, file.filename);
     res.download(fullPath, file.originalName, (err) => {
-        if (err) {
-            console.error('download error', err && err.message);
-            return;
-        }
+        if (err) return;
         const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip;
         const userAgent = req.headers['user-agent'] || 'unknown';
         sendDiscordDownloadNotification({
@@ -236,9 +260,7 @@ app.delete('/api/files/:id', adminOnly, (req, res) => {
 
     const fullPath = path.join(UPLOAD_DIR, file.filename);
     try {
-        if (fs.existsSync(fullPath)) {
-            fs.unlinkSync(fullPath);
-        }
+        if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
     } catch (err) {
         console.error('error deleting file', err);
     }
@@ -247,7 +269,7 @@ app.delete('/api/files/:id', adminOnly, (req, res) => {
     res.json({ success: true });
 });
 
-// locked download (POST)
+// locked download
 app.post('/download/:id', async (req, res) => {
     const ip = req.ip;
     const fileId = req.params.id;
@@ -256,83 +278,52 @@ app.post('/download/:id', async (req, res) => {
 
     if (isBanned(ip, fileId)) {
         sendDiscordAlert({
-            ip,
-            userAgent: req.headers['user-agent'] || 'unknown',
-            timestamp: new Date().toISOString(),
-            filename: file.originalName,
-            providedNickname: req.body.nickname || '',
-            status: 'Timeout/Ban Issued'
+            ip, userAgent: req.headers['user-agent'] || 'unknown',
+            timestamp: new Date().toISOString(), filename: file.originalName,
+            providedNickname: req.body.nickname || '', status: 'Timeout/Ban Issued'
         });
-        return res.status(429).json({ error: 'too many attempts, try later' });
+        return res.status(429).json({ error: 'too many attempts' });
     }
 
-    if (!file.isLocked) {
-        return res.redirect(`/download/${fileId}`);
-    }
+    if (!file.isLocked) return res.redirect(`/download/${fileId}`);
 
     const { password, nickname } = req.body;
-    if (!password || !nickname) {
-        return res.status(400).json({ error: 'password and nickname required' });
-    }
+    if (!password || !nickname) return res.status(400).json({ error: 'missing fields' });
 
     if (nickname !== file.nickname) {
-        const bannedNow = recordFailure(ip, fileId);
-        await sendDiscordAlert({
-            ip,
-            userAgent: req.headers['user-agent'] || 'unknown',
-            timestamp: new Date().toISOString(),
-            filename: file.originalName,
-            providedNickname: nickname,
-            status: 'Wrong Nickname'
-        });
+        recordFailure(ip, fileId);
         return res.status(403).json({ error: 'invalid credentials' });
     }
 
     const match = await bcrypt.compare(password, file.passwordHash);
     if (!match) {
-        const bannedNow = recordFailure(ip, fileId);
-        await sendDiscordAlert({
-            ip,
-            userAgent: req.headers['user-agent'] || 'unknown',
-            timestamp: new Date().toISOString(),
-            filename: file.originalName,
-            providedNickname: nickname,
-            status: 'Wrong Password'
-        });
+        recordFailure(ip, fileId);
         return res.status(403).json({ error: 'invalid credentials' });
     }
 
     attemptMap.delete(makeKey(ip, fileId));
     const fullPath = path.join(UPLOAD_DIR, file.filename);
-    res.download(fullPath, file.originalName, (err) => {
-        if (err) {
-            console.error('download error', err && err.message);
-            return;
-        }
-        const ipAddr = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip;
-        const userAgent = req.headers['user-agent'] || 'unknown';
-        sendDiscordDownloadNotification({
-            filename: file.originalName,
-            userInfo: nickname || file.nickname || 'unknown',
-            ip: ipAddr,
-            userAgent,
-            timestamp: new Date().toISOString()
-        });
-    });
+    res.download(fullPath, file.originalName);
 });
 
-// error handler
-app.use((err, req, res, next) => {
-    console.error(err);
-    res.status(500).json({ error: 'server error' });
-});
-
-// --- OPRAVENÝ START SERVERU ---
+// Start serveru
 const PORT = process.env.PORT || 3000;
-const HOST = '0.0.0.0'; // Nutné pro Docker, aby přijímal spojení zvenku
+const HOST = '0.0.0.0';
 
-app.listen(PORT, HOST, () => {
-    console.log(`🚀 CDN Server is running!`);
-    console.log(`🏠 Internal URL: http://localhost:${PORT}`);
-    console.log(`🌍 External access enabled on host port (e.g. 3080)`);
+const server = app.listen(PORT, HOST, () => {
+    console.log(`
+    🚀🚀🚀 CDN SERVER STARTUJE 🚀🚀🚀
+    ---------------------------------
+    Adresa: http://${HOST}:${PORT}
+    Admin:  http://${HOST}:${PORT}/admin
+    Data:   ${DATA_DIR}
+    ---------------------------------
+    `);
+});
+
+// Ošetření vypnutí kontejneru
+process.on('SIGTERM', () => {
+    console.log('SIGTERM přijat, vypínám SQLite a server...');
+    db.close();
+    server.close();
 });
