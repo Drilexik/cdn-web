@@ -1,20 +1,28 @@
 FROM node:20-slim
 
-# install build dependencies for better-sqlite3
-RUN apk add --no-cache python3 make g++ \
+# Instalace závislostí pro Debian (Slim verze)
+# Potřebujeme je, aby se mohl správně zkompilovat modul better-sqlite3
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    sqlite3 \
+    && rm -rf /var/lib/apt/lists/* \
     && npm set progress=false
 
 WORKDIR /app
 
-# copy package files and install
+# Kopírování package souborů a instalace
 COPY package.json package-lock.json* ./
 RUN npm install --production
 
-# copy rest of source
+# Kopírování zbytku zdrojového kódu
 COPY . .
 
-# ensure data directory exists
+# Ujištění, že složky pro data a upload existují
 RUN mkdir -p /app/data/uploads
 
 EXPOSE 3000
+
+# Spuštění aplikace
 CMD ["node", "server.js"]
