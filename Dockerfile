@@ -1,28 +1,20 @@
-FROM node:20-slim
+FROM node:20-alpine
 
-# Instalace závislostí pro Debian (Slim verze)
-# Potřebujeme je, aby se mohl správně zkompilovat modul better-sqlite3
-RUN apt-get update && apt-get install -y \
-    python3 \
-    make \
-    g++ \
-    sqlite3 \
-    && rm -rf /var/lib/apt/lists/* \
-    && npm set progress=false
+# Instalace závislostí pro SQLite na Alpine
+RUN apk add --no-cache python3 make g++ sqlite-dev
 
 WORKDIR /app
 
-# Kopírování package souborů a instalace
-COPY package.json package-lock.json* ./
+# Kopírování a instalace
+COPY package*.json ./
 RUN npm install --production
 
-# Kopírování zbytku zdrojového kódu
 COPY . .
 
-# Ujištění, že složky pro data a upload existují
-RUN mkdir -p /app/data/uploads
+# Práva pro zápis do databáze (tohle může být ten problém!)
+RUN mkdir -p /app/data/uploads && chmod -R 777 /app/data
 
 EXPOSE 3000
 
-# Spuštění aplikace
+# Spuštění s explicitním výpisem chyb
 CMD ["node", "server.js"]
