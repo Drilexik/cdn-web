@@ -74,7 +74,6 @@ function recordFailure(ip, fileId) {
     const now = Date.now();
     const entry = attemptMap.get(key) || { attempts: 0, bannedUntil: null };
     if (entry.bannedUntil && entry.bannedUntil > now) {
-        // already banned
         return false;
     }
     entry.attempts += 1;
@@ -94,7 +93,6 @@ function isBanned(ip, fileId) {
     if (entry.bannedUntil && entry.bannedUntil > Date.now()) {
         return true;
     }
-    // reset if ban expired
     if (entry.bannedUntil && entry.bannedUntil <= Date.now()) {
         attemptMap.delete(key);
     }
@@ -103,12 +101,11 @@ function isBanned(ip, fileId) {
 
 // discord alert helper
 async function sendDiscordAlert({ ip, userAgent = 'unknown', timestamp, filename = 'unknown', providedNickname = '', status }) {
-    if (!DISCORD_WEBHOOK_URL) return; // nothing to do
+    if (!DISCORD_WEBHOOK_URL) return;
 
-    // choose color based on status
-    let color = 0xFFA500; // orange default
+    let color = 0xFFA500; 
     if (status.toLowerCase().includes('ban')) {
-        color = 0xFF0000; // red
+        color = 0xFF0000; 
     }
 
     const embed = {
@@ -131,10 +128,10 @@ async function sendDiscordAlert({ ip, userAgent = 'unknown', timestamp, filename
     }
 }
 
-// download notification helper (non-blocking)
+// download notification helper
 function sendDiscordDownloadNotification({ filename, userInfo = 'Public Access', ip = 'unknown', userAgent = 'unknown', timestamp }) {
     if (!DISCORD_WEBHOOK_URL) return;
-    const color = 0x00AA00; // green
+    const color = 0x00AA00; 
     const embed = {
         title: 'File Downloaded',
         color,
@@ -147,7 +144,6 @@ function sendDiscordDownloadNotification({ filename, userInfo = 'Public Access',
         ]
     };
 
-    // fire-and-forget; catch errors so it never crashes the server
     (async () => {
         try {
             await axios.post(DISCORD_WEBHOOK_URL, { embeds: [embed] });
@@ -162,7 +158,6 @@ const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, UPLOAD_DIR),
     filename: (req, file, cb) => {
         const id = uuidv4();
-        // we'll use id as filename with original extension
         const ext = path.extname(file.originalname);
         cb(null, id + ext);
     }
@@ -202,7 +197,7 @@ app.post('/api/upload', adminOnly, upload.single('file'), async (req, res) => {
     res.json({ id });
 });
 
-// public download (if not locked)
+// public download
 app.get('/download/:id', (req, res) => {
     const file = getFileById.get(req.params.id);
     if (!file) return res.status(404).send('not found');
@@ -215,7 +210,6 @@ app.get('/download/:id', (req, res) => {
             console.error('download error', err && err.message);
             return;
         }
-        // on successful serve, notify Discord (non-blocking)
         const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip;
         const userAgent = req.headers['user-agent'] || 'unknown';
         sendDiscordDownloadNotification({
@@ -228,13 +222,13 @@ app.get('/download/:id', (req, res) => {
     });
 });
 
-// admin API to list files
+// list files
 app.get('/api/files', (req, res) => {
     const rows = db.prepare(`SELECT id, originalName, nickname, isLocked, uploadDate FROM file_meta`).all();
     res.json(rows);
 });
 
-// delete file endpoint
+// delete file
 app.delete('/api/files/:id', adminOnly, (req, res) => {
     const id = req.params.id;
     const file = getFileById.get(id);
@@ -253,16 +247,14 @@ app.delete('/api/files/:id', adminOnly, (req, res) => {
     res.json({ success: true });
 });
 
-// locked download
+// locked download (POST)
 app.post('/download/:id', async (req, res) => {
     const ip = req.ip;
     const fileId = req.params.id;
-
     const file = getFileById.get(fileId);
     if (!file) return res.status(404).send('not found');
 
     if (isBanned(ip, fileId)) {
-        // log alert with filename now known
         sendDiscordAlert({
             ip,
             userAgent: req.headers['user-agent'] || 'unknown',
@@ -275,7 +267,6 @@ app.post('/download/:id', async (req, res) => {
     }
 
     if (!file.isLocked) {
-        // fall back to GET route
         return res.redirect(`/download/${fileId}`);
     }
 
@@ -284,7 +275,6 @@ app.post('/download/:id', async (req, res) => {
         return res.status(400).json({ error: 'password and nickname required' });
     }
 
-    // verify nickname
     if (nickname !== file.nickname) {
         const bannedNow = recordFailure(ip, fileId);
         await sendDiscordAlert({
@@ -293,18 +283,8 @@ app.post('/download/:id', async (req, res) => {
             timestamp: new Date().toISOString(),
             filename: file.originalName,
             providedNickname: nickname,
-            status: 'Wrong Password'
+            status: 'Wrong Nickname'
         });
-        if (bannedNow) {
-            await sendDiscordAlert({
-                ip,
-                userAgent: req.headers['user-agent'] || 'unknown',
-                timestamp: new Date().toISOString(),
-                filename: file.originalName,
-                providedNickname: nickname,
-                status: 'Timeout/Ban Issued'
-            });
-        }
         return res.status(403).json({ error: 'invalid credentials' });
     }
 
@@ -319,20 +299,9 @@ app.post('/download/:id', async (req, res) => {
             providedNickname: nickname,
             status: 'Wrong Password'
         });
-        if (bannedNow) {
-            await sendDiscordAlert({
-                ip,
-                userAgent: req.headers['user-agent'] || 'unknown',
-                timestamp: new Date().toISOString(),
-                filename: file.originalName,
-                providedNickname: nickname,
-                status: 'Timeout/Ban Issued'
-            });
-        }
         return res.status(403).json({ error: 'invalid credentials' });
     }
 
-    // success, reset attempts
     attemptMap.delete(makeKey(ip, fileId));
     const fullPath = path.join(UPLOAD_DIR, file.filename);
     res.download(fullPath, file.originalName, (err) => {
@@ -340,7 +309,6 @@ app.post('/download/:id', async (req, res) => {
             console.error('download error', err && err.message);
             return;
         }
-        // notify Discord about successful authenticated download
         const ipAddr = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip;
         const userAgent = req.headers['user-agent'] || 'unknown';
         sendDiscordDownloadNotification({
@@ -353,11 +321,18 @@ app.post('/download/:id', async (req, res) => {
     });
 });
 
-// generic error handler
+// error handler
 app.use((err, req, res, next) => {
     console.error(err);
     res.status(500).json({ error: 'server error' });
 });
 
+// --- OPRAVENÝ START SERVERU ---
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server listening on ${PORT}`));
+const HOST = '0.0.0.0'; // Nutné pro Docker, aby přijímal spojení zvenku
+
+app.listen(PORT, HOST, () => {
+    console.log(`🚀 CDN Server is running!`);
+    console.log(`🏠 Internal URL: http://localhost:${PORT}`);
+    console.log(`🌍 External access enabled on host port (e.g. 3080)`);
+});
