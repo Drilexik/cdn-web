@@ -13,3 +13,13 @@ Thumbs.db
 
 # logs
 npm-debug.log*
+
+# ignore all files in data
+/data/*
+
+# dont hide .gitkeep files in data
+!/data/**/.gitkeep
+
+# ignore database files
+/data/*.db
+/data/*.sqlite
