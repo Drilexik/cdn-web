@@ -1,3 +1,6 @@
+# NOT DONE - NEED SOME EDIT TO GET IT WORKING
+Feel free to edit it and use it on your own.
+
 # Custom CDN Server
 
 This is a simple Node.js/Express application that functions as a custom content delivery network (CDN) with optional password protection.
