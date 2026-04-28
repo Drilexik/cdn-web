@@ -1,15 +1,13 @@
-# NOT DONE - NEED SOME EDIT TO GET IT WORKING
 Feel free to edit it and use it on your own.
---------------------------------
-# Custom CDN Server
+![Preview](https://i.ibb.co/RGFKjMvC/image.png)
 
-This is a simple Node.js/Express application that functions as a custom content delivery network (CDN) with optional password protection.
+CDN Based files sharing platform with administration and logging to discord
 
 ## Features
 
 - File metadata stored in SQLite (`better-sqlite3`).
 - Admin-protected upload endpoint using a static password from `.env`.
-- Password-protected downloads with nickname verification.
+- Password-protected downloads.
 - Failed-attempt tracking and temporary IP bans.
 - Discord webhook alerts for security events.
 
@@ -22,28 +20,18 @@ This is a simple Node.js/Express application that functions as a custom content 
    ```
 2. Install dependencies:
    ```bash
-   npm install express better-sqlite3 dotenv multer bcrypt uuid axios
+   npm install
    ```
 3. Start the server:
    ```bash
    node server.js
    ```
 
-> Upon startup the app will create a `data/` directory at the project root containing:
-> - `uploads/` – all stored blobs
-> - `files.db` – SQLite database
->
 > The server also serves a visitor page at `/` and an admin dashboard at `/admin` (both located under `public/`).
 
-4. Upload files via POST `/upload` with form-data fields:
-   - `file`: the file to upload
-   - `nickname`: string
-   - `password` (optional): if provided, file is locked
-   - Include header `x-admin-password` with the admin password.
-
-5. Download files:
+4. Download files:
    - Public (unlocked): `GET /download/:id`
-   - Locked: `POST /download/:id` with JSON `{ password, nickname }`
+   - Locked: `POST /download/:id` with JSON `{ password }`
 
 6. Additional admin APIs:
    - `GET /api/files` returns JSON list of all files (id, originalName, nickname, isLocked, uploadDate).
